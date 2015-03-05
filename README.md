@@ -1,5 +1,6 @@
 # BiodieselReactor
-GUI + Arduino code for the automated biodiesel reactor. 
+GUI + Arduino code for the automated biodiesel reactor. If you've never used Git hub before, click [here](https://help.github.com/articles/good-resources-for-learning-git-and-github/). If you plan on coding a lot,
+learn how to git. 
 
 # Arduino Libraries
 
