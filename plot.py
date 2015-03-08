@@ -12,11 +12,11 @@ class Plt:
 
 	def __init__(self):
 		self.fig = plt.Figure()
-		self.ax = plt.axes(xlim=(0,1000), ylim=(0,1500))
+		self.ax = plt.axes(xlim=(0,1000), ylim=(0,200))
 		self.a1 = deque([0]*1000)			
 		self.line, = plt.plot(self.a1)
 		plt.ion()
-		plt.ylim([0,1500])
+		plt.ylim([0,200])
 
 	def Show(self):
 		print "Showing!"
@@ -28,8 +28,9 @@ class Plt:
 	def Update(self, serial, show): #takes an string (MUST be a number string)
 		data = serial.readline()
 		try:
-			numData = int(data)
+			numData = float(data)
 		except ValueError:
+                        print "Value error!"
 			return False
 
                 if show == False:

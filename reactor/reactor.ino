@@ -1,4 +1,4 @@
-#include <TimerThree.h>
+//#include <TimerThree.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
 
@@ -102,10 +102,15 @@ int wash_count=0; //wash counter to check for wash loop completion
 int tc0 = 0;
 int tc1 = 0;
 int tc_max = 0;
-int tc_min = 0
+int tc_min = 0;
 int seconds = 0;
 float tempF = 0;
 int temp_met = 0;
+
+//Specifically serial related variables
+int goToNextState = 0; //used for changing state 
+int resume = 0;
+int emergencyStop = 0; 
 
 //Temperature sensor setup
 OneWire oneWire(40);
@@ -190,13 +195,11 @@ void SetStirTwo()
    seconds++;
   
    if (seconds > stir_two_time)
-      stir_two_time = 1;
+      stir_two_timer = 1;
 }
       
 //System setup
 void setup() {
-   pinMode(start_reset_pin, INPUT);
-   pinMode(resume_pin, INPUT);
    pinMode(v_f_pin[0], OUTPUT); //Valve 4
    pinMode(v_f_pin[1], OUTPUT); //Valve 5
    pinMode(v_f_pin[2], OUTPUT); //Valve 3
@@ -208,7 +211,7 @@ void setup() {
    pinMode(v_a_pin[2], OUTPUT); //Valve 13? (can't tell if 12 or 13)
    pinMode(motor_pin, OUTPUT);
    pinMode(heater_pin, OUTPUT);
-   pinMode(pump_pin, OUTPUT); );
+   pinMode(pump_pin, OUTPUT);
    digitalWrite(v_f_pin[0],LOW); //Valve 4
    digitalWrite(v_f_pin[1],LOW); //Valve 5
    digitalWrite(v_f_pin[2],LOW); //Valve 3
@@ -219,7 +222,7 @@ void setup() {
    digitalWrite(v_a_pin[1],LOW); //Valve 12? (can't tell if 12 or 13)
    digitalWrite(v_a_pin[2],LOW); //Valve 13? (can't tell if 12 or 13)
    digitalWrite(heater_pin,LOW);
-   Timer3.initialize(1000000); //timer with 1 second period
+   //Timer3.initialize(1000000); //timer with 1 second period
    Serial.begin(9600);
    sensors.begin();
    sensors.setResolution(outakeTherm, 10); 
@@ -235,9 +238,12 @@ void loop(){
          digitalWrite(pump_pin, HIGH); 
          //Probably want this to just stay here, since chemicals should be added 
          //AFTER the temp reaches 95 F
-         if (temp_met == 1)
+         if (emergencyStop)
+            state_main=hold;
+         else if (temp_met || goToNextState)
          {
-            Timer3.attachInterrupt(StirAcidTime); 
+            goToNextState = 0; 
+            //Timer3.attachInterrupt(SetStirAcidTime); 
             seconds = 0;
             state_main = acid_mixing_methanol; 
          }
@@ -247,11 +253,15 @@ void loop(){
       case acid_mixing_methanol: //add methanol at this point, then hit next
          digitalWrite(motor_pin,HIGH); 
          digitalWrite(pump_pin, HIGH); 
-         if (stir_acid_timer == 1)
+         
+         if(emergencyStop)
+            state_main = hold;
+         else if (stir_acid_timer || goToNextState)
          {
-            Timer3.detachInterrupt();
+            goToNextState = 0;
+            //Timer3.detachInterrupt();
             seconds = 0;
-            Timer3.attachInterrupt(SetStirTwo); 
+            //Timer3.attachInterrupt(SetStirTwo); 
             state_main = acid_mixing_h2so4; 
          }
          else 
@@ -260,8 +270,11 @@ void loop(){
       case acid_mixing_h2so4:
          digitalWrite(motor_pin,HIGH); //Note that these are only repeated for clarity
          digitalWrite(pump_pin,HIGH);  //The pin settings carry over from previous states
-         if (stir_two_timer == 1)
+         if (emergencyStop)
+            state_main = hold;
+         else if (stir_two_timer || goToNextState)
          {
+            goToNextState = 0;
             state_main = methoxide_heating;
          }
          else 
@@ -273,11 +286,14 @@ void loop(){
          tc_min = base_temp_min; 
          digitalWrite(motor_pin,HIGH);
          digitalWrite(pump_pin, HIGH); 
-         if (temp_met == 1)
+         if (emergencyStop)
+            state_main = hold;
+         else if (temp_met || goToNextState)
          {
-            Timer3.detachInterrupt();
+            goToNextState = 0;
+            //Timer3.detachInterrupt();
             seconds = 0; 
-            Timer3.attachInterrupt(SetRxnTime); 
+            //Timer3.attachInterrupt(SetRxnTime); 
             state_main = start;
          }
          else
@@ -287,13 +303,14 @@ void loop(){
          q=0;
          digitalWrite(motor_pin,HIGH);
          digitalWrite(pump_pin, HIGH); 
-         if (digitalRead(em_stop_pin)==1) //this needs to be updated to something from the GUI
+         if (emergencyStop) //this needs to be updated to something from the GUI
             state_main=hold;
-         else if (rxn_timer==1) 
+         else if (rxn_timer || goToNextState) 
          {
-            Timer3.detachInterrupt(); 
+            goToNextState = 0;
+            //Timer3.detachInterrupt(); 
             seconds = 0; //reset seconds for the next timer
-            Timer3.attachInterrupt(SetRxnSettleTime); //set the appropriate handler
+            //Timer3.attachInterrupt(SetRxnSettleTime); //set the appropriate handler
             state_main=rxn_settle;
          } 
          else 
@@ -304,11 +321,12 @@ void loop(){
          digitalWrite(pump_pin, LOW); 
          digitalWrite(motor_pin,LOW);
          digitalWrite(rxn_led_pin,HIGH);
-         if (digitalRead(em_stop_pin)==1) 
+         if (emergencyStop) 
             state_main=hold;
-         else if (rxn_settle_timer==1) 
+         else if (rxn_settle_timer || goToNextState) 
          {
-            Timer3.detachInterrupt();
+            goToNextState = 0; 
+            //Timer3.detachInterrupt();
             seconds = 0;
             state_main=g_out_v_open;  
          } 
@@ -320,13 +338,15 @@ void loop(){
          digitalWrite(v_f_pin[0],HIGH); //Valve 5 on diagram?
          digitalWrite(v_f_pin[1],HIGH); //Valve 4 on diagram?
          digitalWrite(v_a_pin[0],HIGH); //Valve 11 on diagram?  
-         if (digitalRead(em_stop_pin)==1) 
+         
+         if (emergencyStop) 
             state_main=hold;
-         else if (light_sensor==1) 
+         else if (goToNextState) 
          {
+            goToNextState = 0;
             seconds = 0; 
-            Timer3.detachInterrupt();
-            Timer3.attachInterrupt(SetVentTimer); 
+            //Timer3.detachInterrupt();
+            //Timer3.attachInterrupt(SetVentTimer); 
             state_main=g_out_v_close;
          } 
          else 
@@ -337,13 +357,15 @@ void loop(){
          digitalWrite(v_f_pin[0],LOW);
          digitalWrite(v_f_pin[1],LOW);
          digitalWrite(v_a_pin[0],LOW);
-         if (digitalRead(em_stop_pin)==1) 
+         
+         if (emergencyStop) 
             state_main=hold;
-         else if (g_out_timer==1) 
+         else if (g_out_timer || goToNextState) 
          {
-            Timer3.detachInterrupt();
+            goToNextState = 0; 
+            //Timer3.detachInterrupt();
             seconds = 0;
-            Timer3.attachInterrupt(SetWashTime); 
+            //Timer3.attachInterrupt(SetWashTime); 
             state_main=wash_start;
          }
          else 
@@ -351,18 +373,18 @@ void loop(){
          break;
       case wash_start:
          q=4;
-         digitalWrite(g_xfer_led_pin,LOW);
-         wash_display=wash_count;
          digitalWrite(v_a_pin[1],HIGH); //Valve 12? 
          digitalWrite(v_a_pin[2],HIGH); //Valve 13?
          digitalWrite(v_f_pin[2],HIGH); //Valve 3
-         if (digitalRead(em_stop_pin)==1) 
+         
+         if (emergencyStop) 
             state_main=hold;
-         else if (wash_timer==1) 
+         else if (wash_timer || goToNextState) 
          {
-            Timer3.detachInterrupt();
+            goToNextState = 0; 
+            //Timer3.detachInterrupt();
             seconds = 0;
-            Timer3.attachInterrupt(SetMixTimer); 
+            //Timer3.attachInterrupt(SetMixTimer); 
             state_main=wash_mix;
          }
          else 
@@ -370,18 +392,19 @@ void loop(){
          break;
       case wash_mix:
          q=5;
-         wash_display=wash_count;
          digitalWrite(v_a_pin[1],LOW);
          digitalWrite(v_a_pin[2],LOW);
          digitalWrite(v_f_pin[2],LOW);
-         digitalWrite(motor_pin,HIGH); //would be nice to very this with PWM! 
-         if (digitalRead(em_stop_pin)==1) 
+         digitalWrite(motor_pin,HIGH);
+         
+         if (emergencyStop) 
             state_main=hold;
-         else if (wash_mix_timer==1) 
+         else if (wash_mix_timer || goToNextState) 
          {
-            Timer3.detachInterrupt();
+            goToNextState = 0;
+            //Timer3.detachInterrupt();
             seconds = 0;
-            Timer3.attachInterrupt(SetWashSettleTimer); 
+            //Timer3.attachInterrupt(SetWashSettleTimer); 
             state_main=wash_settle;
          }
          else 
@@ -389,12 +412,14 @@ void loop(){
          break;
       case wash_settle:
          q=6;
-         wash_display=wash_count;
-         analogWrite(motor_pin,0);
-         if (digitalRead(em_stop_pin)==1) 
+         digitalWrite(motor_pin, LOW);
+         if (emergencyStop) 
             state_main=hold;
-         else if (wash_settle_timer==1) 
+         else if (wash_settle_timer || goToNextState)
+         {
+            goToNextState = 0;  
             state_main=water_flush;
+         }
          else 
             state_main=wash_settle;
          break;
@@ -405,29 +430,30 @@ void loop(){
          digitalWrite(v_f_pin[4],HIGH); //Valve 7
          digitalWrite(v_a_pin[0],HIGH); //Valve 11
          
-         //allow user to wait
-         if (digitalRead(em_stop_pin)==1) 
+         if (emergencyStop) 
             state_main=hold;
-         else if (light_sensor==1) 
+         else if (goToNextState)
+         { 
+            goToNextState = 0;
             state_main=end_wash_cycle;
+         } 
          else 
             state_main=water_flush;
          break;
       case end_wash_cycle:
          q=8;
-         wash_display=wash_count;
          digitalWrite(v_f_pin[0],LOW);
          digitalWrite(v_f_pin[3],LOW);
          digitalWrite(v_f_pin[4],LOW);
          digitalWrite(v_a_pin[0],LOW);
     
-         if(digitalRead(em_stop_pin)==1) 
+         if(emergencyStop) 
             state_main=hold;
          else if(wash_count < 2) 
          {
-            Timer3.detachInterrupt();
+            //Timer3.detachInterrupt();
             seconds = 0; 
-            Timer3.attachInterrupt(SetWashTime); 
+            //Timer3.attachInterrupt(SetWashTime); 
             state_main=wash_start;
             wash_timer = 0;
             wash_mix_timer = 0;
@@ -435,32 +461,30 @@ void loop(){
          }
          else if(wash_count >= 2) 
          {
-            Timer3.detachInterrupt();
+            //Timer3.detachInterrupt();
             seconds = 0; 
-            Timer3.attachInterrupt(SetLineFlushTimer); 
+            //Timer3.attachInterrupt(SetLineFlushTimer); 
             state_main=line_flush;
          }
          else 
             state_main=end_wash_cycle;
       
-         wash_speed=wash_speed+20;
          wash_count=wash_count+1;
          break;
       case line_flush:
          q=9;
-         wash_display=off;
-         digitalWrite(line_flush_led_pin,HIGH);
          digitalWrite(v_f_pin[0],HIGH); //Valve 4
          digitalWrite(v_f_pin[3],HIGH); //Valve 6
          digitalWrite(v_f_pin[4],HIGH); //Valve 7
          digitalWrite(v_a_pin[0],HIGH); //Valve 11
-         if (digitalRead(em_stop_pin)==1) 
+         if (emergencyStop) 
             state_main=hold;
-         else if (line_flush_timer==1) 
+         else if (line_flush_timer || goToNextState) 
          {
-            Timer3.detachInterrupt();
+            goToNextState = 0; 
+            //Timer3.detachInterrupt();
             seconds = 0; 
-            Timer3.attachInterrupt(SetBiodieselXferTimer); 
+            //Timer3.attachInterrupt(SetBiodieselXferTimer); 
             state_main=f_biodiesel_xfer;
          }
          else 
@@ -468,34 +492,32 @@ void loop(){
          break;
       case f_biodiesel_xfer:
          q=10;
-         digitalWrite(line_flush_led_pin,LOW);
-         digitalWrite(bd_xfer_led_pin,HIGH);
          digitalWrite(v_f_pin[4],LOW); //Valve 7
          digitalWrite(v_f_pin[5],HIGH); //Valve 8
          digitalWrite(v_f_pin[0],HIGH); //Valve 4
          digitalWrite(v_f_pin[3],HIGH); //Valve 6
          digitalWrite(v_a_pin[0],HIGH); //Valve 11
-         if (digitalRead(em_stop_pin)==1) 
+         
+         if (emergencyStop) 
             state_main=hold;
-         else if (f_biodiesel_timer==1) 
+         else if (f_biodiesel_timer || goToNextState) 
             state_main=end_p;
          else 
             state_main=f_biodiesel_xfer;
          break;
       case end_p:
          q=11;
-         digitalWrite(bd_xfer_led_pin,LOW);
          digitalWrite(v_f_pin[5],LOW);
          digitalWrite(v_f_pin[0],LOW);
          digitalWrite(v_f_pin[3],LOW);
          digitalWrite(v_a_pin[0],LOW);
-         if (digitalRead(em_stop_pin)==1) 
+         
+         if (emergencyStop) 
             state_main=hold;
          else 
             state_main=end_p;
          break;
       case hold:
-         digitalWrite(em_stop_led_pin,HIGH);
          digitalWrite(v_f_pin[0],LOW);
          digitalWrite(v_f_pin[1],LOW);
          digitalWrite(v_f_pin[2],LOW);
@@ -505,34 +527,30 @@ void loop(){
          digitalWrite(v_a_pin[0],LOW);
          digitalWrite(v_a_pin[1],LOW);
          digitalWrite(v_a_pin[2],LOW);
-         digitalWrite(light_sensor_oe_pin,HIGH);
-         digitalWrite(rxn_led_pin,LOW);
-         digitalWrite(bd_xfer_led_pin,LOW);
-         digitalWrite(line_flush_led_pin,LOW);
-         resume=digitalRead(resume_pin);
-         if (q==0 && resume==HIGH) 
+         
+         if (q==0 && resume) 
             state_main=start;
-         if (q==1 && resume==HIGH) 
+         if (q==1 && resume) 
             state_main=rxn_settle;
-         if (q==2 && resume==HIGH) 
+         if (q==2 && resume) 
             state_main=g_out_v_open;
-         if (q==3 && resume==HIGH) 
+         if (q==3 && resume) 
             state_main=g_out_v_close;
-         if (q==4 && resume==HIGH) 
+         if (q==4 && resume) 
             state_main=wash_start;
-         if (q==5 && resume==HIGH) 
+         if (q==5 && resume) 
             state_main=wash_mix;
-         if (q==6 && resume==HIGH) 
+         if (q==6 && resume) 
             state_main=wash_settle;
-         if (q==7 && resume==HIGH) 
+         if (q==7 && resume) 
             state_main=water_flush;
-         if (q==8 && resume==HIGH) 
+         if (q==8 && resume) 
             state_main=end_wash_cycle;
-         if (q==9 && resume==HIGH) 
+         if (q==9 && resume) 
             state_main=line_flush;
-         if (q==10 && resume==HIGH) 
+         if (q==10 && resume) 
             state_main=f_biodiesel_xfer;
-         if (q==11 && resume==HIGH) 
+         if (q==11 && resume) 
             state_main=end_p;
          else 
             state_main=hold;
@@ -591,10 +609,11 @@ void loop(){
             Serial.println(tempF);  
             break;
          case '1': //next state command
-            q += 1;
+            /*q += 1;
             if (q > MAX_Q)
                q = 0;
-            state_main = q;  
+            state_main = q;*/
+            goToNextState = 1;   
             break;        
          case '2': //previous state command
             q -= 1;
@@ -603,7 +622,16 @@ void loop(){
             state_main = q;
             break;
          case '3': //Emergency stop command
-            state_main = hold;    
+            if (emergencyStop)
+            {
+               resume=1;
+               emergencyStop=0;
+            }
+            else
+            {
+               resume = 0;
+               emergencyStop = 1;
+            } 
             break;
          case '4':
             state_water = heater_on;
@@ -614,9 +642,8 @@ void loop(){
          case '6':
             Serial.write('6');
             delay(10);
-            Serial.println(analogRead(0));
-            break;
-             
+            Serial.println(tempF);
+            break;             
        } 
     }      
 }
