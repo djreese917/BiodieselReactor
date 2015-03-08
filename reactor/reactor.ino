@@ -1,53 +1,38 @@
-
 #include <TimerThree.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
 
-
-//all signals are active high unless noted otherwise
-// inputs
-#define light_sensor_pin 3
-#define thermocouple0_pin 0
-#define thermocouple1_pin 1
-#define start_reset_pin 23
-#define em_stop_pin 24
-#define resume_pin 25
-
-//Motor controller fault indicator 1
-#define motor_ff1_pin 26
-
-//Motor controller fault indicator 2
-#define motor_ff2_pin 27
+//Deprecated / usage unknown pins
+#define motor_ff1_pin 26     //usage unknown
+#define motor_ff2_pin 27     //usage unknown
+#define motor_dir_pin 10     //usage unknown
+#define thermocouple0_pin 0  //deprecated (thermometer used now)
+#define thermocouple1_pin 1  //deprecated (thermometer used now)
+#define light_sensor_pin 3   //deprecated (light sensor not being used
+#define start_reset_pin 23   //deprecated (switch board no longer used)
+#define em_stop_pin 24       //deprecated (switch board no longer used)
+#define resume_pin 25        //deprecated (switch board no longer used)
+#define motor_reset_pin 37   //deprecated (motor doesn't have a reset, what?)
+#define light_sensor_led_pin 53 //deprecated (switch board no longer used)
+#define rxn_led_pin 39          //deprecated (switch board no longer used)
+#define g_xfer_led_pin 40       //deprecated (switch board no longer used)
+#define bd_xfer_led_pin 41      //deprecated (switch board no longer used) 
+#define line_flush_led_pin 42   //deprecated (switch board no longer used)
+#define heater_led_pin 11       //deprecated (switch board no longer used)
+#define em_stop_led_pin 52      //deprecated (switch board no longer used)
+#define light_sensor_oe_pin 38  //deprecated (light sensor not used)
+//43, 44, 45. 46, 47, 48, 49, 50 These were all used as part of the wash ssg, which doesnt exist anymore
 
 // outputs
 #define motor_pin 42
-#define motor_dir_pin 10
-
-//Motor controller active low fault flag reset
-#define motor_reset_pin 37
 #define heater_pin 12
 #define pump_pin 51
 
-//active low output enable for light sensor
-#define light_sensor_oe_pin 38
-#define light_sensor_led_pin 53
-#define rxn_led_pin 39
-
-//Glycerin transfer led
-#define g_xfer_led_pin 40
-
-//Biodiesel transfer led
-#define bd_xfer_led_pin 41
-#define line_flush_led_pin 42
-#define heater_led_pin 11
-#define em_stop_led_pin 52
-
-//defining sensor thresholds
-#define light_sensor_thresh
-#define thermo_thresh_l
-#define thermo_thresh_h
-
-//Defining main state machine names and values
+//State machine states
+#define acid_heating 13
+#define acid_mixing_methanol 14
+#define acid_mixing_h2so4 15
+#define methoxide_heating 16
 #define start 0
 #define rxn_settle 1
 #define g_out_v_open 2
@@ -62,57 +47,15 @@
 #define end_p 11
 #define hold 12
 
-//Defining water heater state machine names and values
+//Water heater state machine states
 #define heater_on 0
 #define heater_off 1
 #define stop_wh 2
 
-//Undefined constants from report (are these correct?) Its also probably not reported in degrees
-#define tc_max 140
-#define tc_min 139
-
-//New constants
-#define MAX_Q 12
-
-//int outputs
-int v_f_pin [6]={
-  28, 29, 30, 31, 32, 33}; //fluid valve pins
-int v_a_pin [3]={
-  34, 35, 36,}; //air valves
-int wash_ssg_pin [8]={
-  43, 44, 45, 46, 47, 48, 49, 50}; // Wash display counter
-int rxn_speed=125; //0 to 255 where duty cycle = rxn_speed/255 x 100%
-int wash_speed=50;
-int q=0;//State indicator variable
-int wash_count=0; //wash counter to check for wash loop completion
-int off; //blank wash_ssg
-int wh_q; //water heater state indicator variable
-//int inputs
-int resume=0;
-int light_sensor=0;
-//timers
-int rxn_timer=0;
-int rxn_settle_timer=0;
-int g_out_timer=0;
-int wash_timer=0;
-int wash_mix_timer=0;
-int wash_settle_timer=0;
-int line_flush_timer=0;
-int f_biodiesel_timer=0;
-int state_main=start;
-int state_water=heater_on;
-//seven segment display definitions
-int wash_display=0;
-
-//variables that weren't defined
-int tc0 = 0;
-int tc1 = 0;
-
-int seconds = 0;
-
-float tempF = 0;
-
-#define rxn_time 7200 //7200 seconds in two hours 
+//Timer related defines
+#define stir_two_time 3600 //3600 seconds in an hour
+#define stir_acid_time 300 //300 seconds in 5 min
+#define rxn_time 1800 //1800 seconds is half an hour 
 #define rxn_settle_time 21600 //21600 seconds in six hours
 #define g_out_time 10 //acutally ten seconds
 #define wash_time 400 //water is added for 6 minutes and 40 seconds
@@ -121,66 +64,109 @@ float tempF = 0;
 #define line_flush_time 5 //flush the line before draining biodiesel from reactor tank
 #define biodiesel_xfer_time 90 //drain the biodiesel for 90 seconds
 
-#define ONE_WIRE_BUS g_xfer_led_pin //pin that temp sensor is plugged into
+//Temperature thresholds
+#define acid_temp_max 96
+#define acid_temp_min 94
+#define base_temp_max 131
+#define base_temp_min 129
+
+//MISC defines
+#define MAX_Q 12
+#define ONE_WIRE_BUS 40 //pin that temp sensor is plugged into
+
+//MISC Variables
+int v_f_pin [6]={28, 29, 30, 31, 32, 33}; //fluid valve pins
+int v_a_pin [3]={34, 35, 36,}; //air valves
+int light_sensor=0;
+
+//timer related variables
+int rxn_timer=0;
+int rxn_settle_timer=0;
+int g_out_timer=0;
+int wash_timer=0;
+int wash_mix_timer=0;
+int wash_settle_timer=0;
+int line_flush_timer=0;
+int f_biodiesel_timer=0;
+int stir_acid_timer=0;
+int stir_two_timer=0;
+
+//state related variables
+int q=0;//State indicator variable
+int state_main=start;
+int state_water=heater_on;
+int wh_q; //water heater state indicator variable;
+int wash_count=0; //wash counter to check for wash loop completion
+
+//Temperature related variables
+int tc0 = 0;
+int tc1 = 0;
+int tc_max = 0;
+int tc_min = 0
+int seconds = 0;
+float tempF = 0;
+int temp_met = 0;
+
+//Temperature sensor setup
 OneWire oneWire(40);
 DeviceAddress outakeTherm = {0x28, 0xDF, 0x70, 0xFB, 0x05, 0x00, 0x00, 0x43};
 DallasTemperature sensors(&oneWire); 
 
-//would be nice to consolidate these functions in some way...
+//Timer related call back functions
 void SetRxnTime()
 {
-  seconds++;
+   seconds++;
   
-  if (seconds > rxn_time)
-     rxn_timer = 1;
+   if (seconds > rxn_time)
+      rxn_timer = 1;
 } 
 
 void SetRxnSettleTime()
 {
-  seconds++; 
+   seconds++; 
   
-  if (seconds > rxn_settle_time)
-     rxn_settle_timer = 1;
+   if (seconds > rxn_settle_time)
+      rxn_settle_timer = 1;
 } 
 
 void SetVentTimer()
 {
-  seconds++;
+   seconds++;
   
-  if (seconds > g_out_time)
-     g_out_timer = 1; 
+   if (seconds > g_out_time)
+   g_out_timer = 1; 
 } 
 
 void SetWashTime()
 {
-  seconds++;
+   seconds++;
   
-  if (seconds > wash_time)
-     wash_timer = 1;
+   if (seconds > wash_time)
+      wash_timer = 1;
 }
 
 void SetMixTimer()
 {
-  seconds++;
+   seconds++;
   
-  if (seconds > mix_time)
-     wash_mix_timer = 1;
+   if (seconds > mix_time)
+      wash_mix_timer = 1;
 }
 
 void SetWashSettleTimer()
 {
-  seconds++;
+   seconds++;
   
-  if (seconds > wash_settle_time)
-     wash_settle_timer = 1;
+   if (seconds > wash_settle_time)
+      wash_settle_timer = 1;
 } 
      
 void SetLineFlushTimer()
 {
-  seconds++;
+   seconds++;
   
-  if (seconds > line_flush_time)
-     line_flush_timer = 1;
+   if (seconds > line_flush_time)
+      line_flush_timer = 1;
 }
 
 void SetBiodieselXferTimer()
@@ -191,386 +177,407 @@ void SetBiodieselXferTimer()
       f_biodiesel_timer = 1;
 } 
 
+void SetStirAcidTime()
+{
+   seconds++;
+   
+   if (seconds > stir_acid_time)
+      stir_acid_timer = 1; 
+}
+
+void SetStirTwo()
+{
+   seconds++;
+  
+   if (seconds > stir_two_time)
+      stir_two_time = 1;
+}
+      
+//System setup
 void setup() {
-  pinMode(light_sensor_pin,INPUT);
-  pinMode(thermocouple0_pin, INPUT);
-  pinMode(thermocouple1_pin, INPUT);
-  pinMode(start_reset_pin, INPUT);
-  pinMode(em_stop_pin, INPUT);
-  pinMode(resume_pin, INPUT);
-  pinMode(motor_ff1_pin, INPUT);
-  pinMode(motor_ff2_pin, INPUT);
-  pinMode(v_f_pin[0], OUTPUT);
-  pinMode(v_f_pin[1], OUTPUT);
-  pinMode(v_f_pin[2], OUTPUT);
-  pinMode(v_f_pin[3], OUTPUT);
-  pinMode(v_f_pin[4], OUTPUT);
-  pinMode(v_f_pin[5], OUTPUT);
-  pinMode(v_a_pin[0], OUTPUT);
-  pinMode(v_a_pin[1], OUTPUT);
-  pinMode(v_a_pin[2], OUTPUT);
-  pinMode(motor_pin, OUTPUT);
-  pinMode(motor_reset_pin, OUTPUT);
-  pinMode(heater_pin, OUTPUT);
-  pinMode(light_sensor_oe_pin, OUTPUT);
-  pinMode(rxn_led_pin, OUTPUT);
-  pinMode(bd_xfer_led_pin, OUTPUT);
-  pinMode(line_flush_led_pin, OUTPUT);
-  pinMode(g_xfer_led_pin, OUTPUT);
-  pinMode(wash_ssg_pin[0], OUTPUT);
-  pinMode(wash_ssg_pin[1], OUTPUT);
-  pinMode(wash_ssg_pin[2], OUTPUT);
-  pinMode(wash_ssg_pin[3], OUTPUT);
-  pinMode(wash_ssg_pin[4], OUTPUT);
-  pinMode(wash_ssg_pin[5], OUTPUT);
-  pinMode(wash_ssg_pin[6], OUTPUT);
-  pinMode(wash_ssg_pin[7], OUTPUT);
-  pinMode(pump_pin, OUTPUT); 
-  pinMode(heater_led_pin, INPUT);
-  digitalWrite(v_f_pin[0],LOW);
-  digitalWrite(v_f_pin[1],LOW);
-  digitalWrite(v_f_pin[2],LOW);
-  digitalWrite(v_f_pin[3],LOW);
-  digitalWrite(v_f_pin[4],LOW);
-  digitalWrite(v_f_pin[5],LOW);
-  digitalWrite(v_a_pin[0],LOW);
-  digitalWrite(v_a_pin[1],LOW);
-  digitalWrite(v_a_pin[2],LOW);
-  digitalWrite(motor_reset_pin,LOW);
-  digitalWrite(heater_pin,LOW);
-  digitalWrite(light_sensor_oe_pin,HIGH);
-  digitalWrite(rxn_led_pin,LOW);
-  digitalWrite(bd_xfer_led_pin,LOW);
-  digitalWrite(line_flush_led_pin,LOW);
-  digitalWrite(wash_ssg_pin[0],LOW);
-  digitalWrite(wash_ssg_pin[1],LOW);
-  digitalWrite(wash_ssg_pin[2],LOW);
-  digitalWrite(wash_ssg_pin[3],LOW);
-  digitalWrite(wash_ssg_pin[4],LOW);
-  digitalWrite(wash_ssg_pin[5],LOW);
-  digitalWrite(wash_ssg_pin[6],LOW);
-  digitalWrite(wash_ssg_pin[7],LOW);
-  Timer3.initialize(1000000); //timer with 1 second period
-  Timer3.attachInterrupt(SetRxnTime); 
-  Serial.begin(9600);
-  sensors.begin();
-  sensors.setResolution(outakeTherm, 10); 
+   pinMode(start_reset_pin, INPUT);
+   pinMode(resume_pin, INPUT);
+   pinMode(v_f_pin[0], OUTPUT); //Valve 4
+   pinMode(v_f_pin[1], OUTPUT); //Valve 5
+   pinMode(v_f_pin[2], OUTPUT); //Valve 3
+   pinMode(v_f_pin[3], OUTPUT); //Valve 6
+   pinMode(v_f_pin[4], OUTPUT); //Valve 7
+   pinMode(v_f_pin[5], OUTPUT); //Valve 8
+   pinMode(v_a_pin[0], OUTPUT); //Valve 11
+   pinMode(v_a_pin[1], OUTPUT); //Valve 12? (can't tell if 12 or 13)
+   pinMode(v_a_pin[2], OUTPUT); //Valve 13? (can't tell if 12 or 13)
+   pinMode(motor_pin, OUTPUT);
+   pinMode(heater_pin, OUTPUT);
+   pinMode(pump_pin, OUTPUT); );
+   digitalWrite(v_f_pin[0],LOW); //Valve 4
+   digitalWrite(v_f_pin[1],LOW); //Valve 5
+   digitalWrite(v_f_pin[2],LOW); //Valve 3
+   digitalWrite(v_f_pin[3],LOW); //Valve 6
+   digitalWrite(v_f_pin[4],LOW); //Valve 7
+   digitalWrite(v_f_pin[5],LOW); //Valve 8
+   digitalWrite(v_a_pin[0],LOW); //Valve 11
+   digitalWrite(v_a_pin[1],LOW); //Valve 12? (can't tell if 12 or 13)
+   digitalWrite(v_a_pin[2],LOW); //Valve 13? (can't tell if 12 or 13)
+   digitalWrite(heater_pin,LOW);
+   Timer3.initialize(1000000); //timer with 1 second period
+   Serial.begin(9600);
+   sensors.begin();
+   sensors.setResolution(outakeTherm, 10); 
 }
 
 void loop(){
  
-  switch(state_main){
-  case start:
-    q=0;
-    digitalWrite(rxn_led_pin,HIGH);
-    digitalWrite(motor_pin,HIGH);
-    digitalWrite(pump_pin, HIGH); 
-    if (digitalRead(em_stop_pin)==1) 
-       state_main=hold;
-    else if (rxn_timer==1) 
-    {
-      Timer3.detachInterrupt(); 
-      seconds = 0; //reset seconds for the next timer
-      Timer3.attachInterrupt(SetRxnSettleTime); //set the appropriate handler
-      state_main=rxn_settle;
-    } 
-    else 
-      state_main=start;
-    break;
-  case rxn_settle:
-    q=1;
-    digitalWrite(pump_pin, LOW); 
-    digitalWrite(motor_pin,LOW);
-    digitalWrite(rxn_led_pin,HIGH);
-    if (digitalRead(em_stop_pin)==1) 
-      state_main=hold;
-    else if (rxn_settle_timer==1) 
-    {
-      Timer3.detachInterrupt();
-      seconds = 0;
-      state_main=g_out_v_open;  
-    } 
-    else 
-      state_main=rxn_settle;
-    break;
-  case g_out_v_open:
-    q=2;
-    digitalWrite(rxn_led_pin,LOW);
-    digitalWrite(g_xfer_led_pin,HIGH);
-    digitalWrite(v_f_pin[0],HIGH);
-    digitalWrite(v_f_pin[1],HIGH);
-    digitalWrite(v_a_pin[0],HIGH);
-    digitalWrite(light_sensor_oe_pin,LOW); //active low enable
+   switch(state_main)
+   {
+      case acid_heating: //Heat the WVO up to 95 F
+         tc_max = acid_temp_max;
+         tc_min = acid_temp_min; 
+         digitalWrite(pump_pin, HIGH); 
+         //Probably want this to just stay here, since chemicals should be added 
+         //AFTER the temp reaches 95 F
+         if (temp_met == 1)
+         {
+            Timer3.attachInterrupt(StirAcidTime); 
+            seconds = 0;
+            state_main = acid_mixing_methanol; 
+         }
+         else
+            state_main = acid_heating; 
+         break;
+      case acid_mixing_methanol: //add methanol at this point, then hit next
+         digitalWrite(motor_pin,HIGH); 
+         digitalWrite(pump_pin, HIGH); 
+         if (stir_acid_timer == 1)
+         {
+            Timer3.detachInterrupt();
+            seconds = 0;
+            Timer3.attachInterrupt(SetStirTwo); 
+            state_main = acid_mixing_h2so4; 
+         }
+         else 
+            state_main = acid_mixing_methanol;
+         break;
+      case acid_mixing_h2so4:
+         digitalWrite(motor_pin,HIGH); //Note that these are only repeated for clarity
+         digitalWrite(pump_pin,HIGH);  //The pin settings carry over from previous states
+         if (stir_two_timer == 1)
+         {
+            state_main = methoxide_heating;
+         }
+         else 
+            state_main = acid_mixing_h2so4;
+        
+         break; 
+      case methoxide_heating:
+         tc_max = base_temp_max;
+         tc_min = base_temp_min; 
+         digitalWrite(motor_pin,HIGH);
+         digitalWrite(pump_pin, HIGH); 
+         if (temp_met == 1)
+         {
+            Timer3.detachInterrupt();
+            seconds = 0; 
+            Timer3.attachInterrupt(SetRxnTime); 
+            state_main = start;
+         }
+         else
+            state_main = methoxide_heating; 
+         break;
+      case start: //add methoxide add this point.
+         q=0;
+         digitalWrite(motor_pin,HIGH);
+         digitalWrite(pump_pin, HIGH); 
+         if (digitalRead(em_stop_pin)==1) //this needs to be updated to something from the GUI
+            state_main=hold;
+         else if (rxn_timer==1) 
+         {
+            Timer3.detachInterrupt(); 
+            seconds = 0; //reset seconds for the next timer
+            Timer3.attachInterrupt(SetRxnSettleTime); //set the appropriate handler
+            state_main=rxn_settle;
+         } 
+         else 
+            state_main=start;
+         break;
+      case rxn_settle:
+         q=1;
+         digitalWrite(pump_pin, LOW); 
+         digitalWrite(motor_pin,LOW);
+         digitalWrite(rxn_led_pin,HIGH);
+         if (digitalRead(em_stop_pin)==1) 
+            state_main=hold;
+         else if (rxn_settle_timer==1) 
+         {
+            Timer3.detachInterrupt();
+            seconds = 0;
+            state_main=g_out_v_open;  
+         } 
+         else 
+            state_main=rxn_settle;
+         break;
+      case g_out_v_open:
+         q=2;
+         digitalWrite(v_f_pin[0],HIGH); //Valve 5 on diagram?
+         digitalWrite(v_f_pin[1],HIGH); //Valve 4 on diagram?
+         digitalWrite(v_a_pin[0],HIGH); //Valve 11 on diagram?  
+         if (digitalRead(em_stop_pin)==1) 
+            state_main=hold;
+         else if (light_sensor==1) 
+         {
+            seconds = 0; 
+            Timer3.detachInterrupt();
+            Timer3.attachInterrupt(SetVentTimer); 
+            state_main=g_out_v_close;
+         } 
+         else 
+            state_main=g_out_v_open;
+         break;
+      case g_out_v_close:
+         q=3;
+         digitalWrite(v_f_pin[0],LOW);
+         digitalWrite(v_f_pin[1],LOW);
+         digitalWrite(v_a_pin[0],LOW);
+         if (digitalRead(em_stop_pin)==1) 
+            state_main=hold;
+         else if (g_out_timer==1) 
+         {
+            Timer3.detachInterrupt();
+            seconds = 0;
+            Timer3.attachInterrupt(SetWashTime); 
+            state_main=wash_start;
+         }
+         else 
+            state_main=g_out_v_close;
+         break;
+      case wash_start:
+         q=4;
+         digitalWrite(g_xfer_led_pin,LOW);
+         wash_display=wash_count;
+         digitalWrite(v_a_pin[1],HIGH); //Valve 12? 
+         digitalWrite(v_a_pin[2],HIGH); //Valve 13?
+         digitalWrite(v_f_pin[2],HIGH); //Valve 3
+         if (digitalRead(em_stop_pin)==1) 
+            state_main=hold;
+         else if (wash_timer==1) 
+         {
+            Timer3.detachInterrupt();
+            seconds = 0;
+            Timer3.attachInterrupt(SetMixTimer); 
+            state_main=wash_mix;
+         }
+         else 
+            state_main=wash_start;
+         break;
+      case wash_mix:
+         q=5;
+         wash_display=wash_count;
+         digitalWrite(v_a_pin[1],LOW);
+         digitalWrite(v_a_pin[2],LOW);
+         digitalWrite(v_f_pin[2],LOW);
+         digitalWrite(motor_pin,HIGH); //would be nice to very this with PWM! 
+         if (digitalRead(em_stop_pin)==1) 
+            state_main=hold;
+         else if (wash_mix_timer==1) 
+         {
+            Timer3.detachInterrupt();
+            seconds = 0;
+            Timer3.attachInterrupt(SetWashSettleTimer); 
+            state_main=wash_settle;
+         }
+         else 
+            state_main=wash_mix;
+         break;
+      case wash_settle:
+         q=6;
+         wash_display=wash_count;
+         analogWrite(motor_pin,0);
+         if (digitalRead(em_stop_pin)==1) 
+            state_main=hold;
+         else if (wash_settle_timer==1) 
+            state_main=water_flush;
+         else 
+            state_main=wash_settle;
+         break;
+      case water_flush:
+         q=7;
+         digitalWrite(v_f_pin[0],HIGH); //Valve 4
+         digitalWrite(v_f_pin[3],HIGH); //Valve 6
+         digitalWrite(v_f_pin[4],HIGH); //Valve 7
+         digitalWrite(v_a_pin[0],HIGH); //Valve 11
+         
+         //allow user to wait
+         if (digitalRead(em_stop_pin)==1) 
+            state_main=hold;
+         else if (light_sensor==1) 
+            state_main=end_wash_cycle;
+         else 
+            state_main=water_flush;
+         break;
+      case end_wash_cycle:
+         q=8;
+         wash_display=wash_count;
+         digitalWrite(v_f_pin[0],LOW);
+         digitalWrite(v_f_pin[3],LOW);
+         digitalWrite(v_f_pin[4],LOW);
+         digitalWrite(v_a_pin[0],LOW);
     
-    //light_sensor = 1; //for now, just skip this step
-    
-    //should read from the light sensor here
-    if (digitalRead(em_stop_pin)==1) 
-       state_main=hold;
-    else if (light_sensor==1) 
-    {
-      seconds = 0; 
-      Timer3.detachInterrupt();
-      Timer3.attachInterrupt(SetVentTimer); 
-      state_main=g_out_v_close;
-    } 
-    else 
-      state_main=g_out_v_open;
-    break;
-  case g_out_v_close:
-    q=3;
-    digitalWrite(g_xfer_led_pin,HIGH);
-    digitalWrite(v_f_pin[0],LOW);
-    digitalWrite(v_f_pin[1],LOW);
-    digitalWrite(v_a_pin[0],LOW);
-    if (digitalRead(em_stop_pin)==1) 
-       state_main=hold;
-    else if (g_out_timer==1) 
-    {
-      Timer3.detachInterrupt();
-      seconds = 0;
-      Timer3.attachInterrupt(SetWashTime); 
-      state_main=wash_start;
-    }
-    else 
-      state_main=g_out_v_close;
-    break;
-  case wash_start:
-    q=4;
-    digitalWrite(g_xfer_led_pin,LOW);
-    wash_display=wash_count;
-    digitalWrite(v_a_pin[1],HIGH);
-    digitalWrite(v_a_pin[2],HIGH);
-    digitalWrite(v_f_pin[2],HIGH);
-    if (digitalRead(em_stop_pin)==1) 
-      state_main=hold;
-    else if (wash_timer==1) 
-    {
-      Timer3.detachInterrupt();
-      seconds = 0;
-      Timer3.attachInterrupt(SetMixTimer); 
-      state_main=wash_mix;
-    }
-    else 
-      state_main=wash_start;
-    break;
-  case wash_mix:
-    q=5;
-    wash_display=wash_count;
-    digitalWrite(v_a_pin[1],LOW);
-    digitalWrite(v_a_pin[2],LOW);
-    digitalWrite(v_f_pin[2],LOW);
-    digitalWrite(motor_pin,HIGH); //would be nice to very this with PWM! 
-    if (digitalRead(em_stop_pin)==1) 
-       state_main=hold;
-    else if (wash_mix_timer==1) 
-    {
-      Timer3.detachInterrupt();
-      seconds = 0;
-      Timer3.attachInterrupt(SetWashSettleTimer); 
-      state_main=wash_settle;
-    }
-    else 
-      state_main=wash_mix;
-    break;
-  case wash_settle:
-    q=6;
-    wash_display=wash_count;
-    analogWrite(motor_pin,0);
-    if (digitalRead(em_stop_pin)==1) 
-       state_main=hold;
-    else if (wash_settle_timer==1) 
-      state_main=water_flush;
-    else 
-      state_main=wash_settle;
-    break;
-  case water_flush:
-    q=7;
-    wash_display=wash_count;
-    digitalWrite(v_f_pin[0],HIGH);
-    digitalWrite(v_f_pin[3],HIGH);
-    digitalWrite(v_f_pin[4],HIGH);
-    digitalWrite(v_a_pin[0],HIGH);
-    //incorporate light sensor logic here
-    
-    //for now, just set this to one for debugging
-    light_sensor = 1; 
-    
-    if (digitalRead(em_stop_pin)==1) 
-       state_main=hold;
-    else if (light_sensor==1) 
-      state_main=end_wash_cycle;
-    else 
-      state_main=water_flush;
-    break;
-  case end_wash_cycle:
-    q=8;
-    wash_display=wash_count;
-    digitalWrite(v_f_pin[0],LOW);
-    digitalWrite(v_f_pin[3],LOW);
-    digitalWrite(v_f_pin[4],LOW);
-    digitalWrite(v_a_pin[0],LOW);
-    
-    //check this logic
-    if(digitalRead(em_stop_pin)==1) 
-       state_main=hold;
-    else if(wash_count < 2) 
-    {
-       Timer3.detachInterrupt();
-       seconds = 0; 
-       Timer3.attachInterrupt(SetWashTime); 
-       state_main=wash_start;
-       wash_timer = 0;
-       wash_mix_timer = 0;
-       wash_settle_timer = 0; 
-    }
-    else if(wash_count >= 2) 
-    {
-       Timer3.detachInterrupt();
-       seconds = 0; 
-       Timer3.attachInterrupt(SetLineFlushTimer); 
-       state_main=line_flush;
-    }
-    else 
-      state_main=end_wash_cycle;
+         if(digitalRead(em_stop_pin)==1) 
+            state_main=hold;
+         else if(wash_count < 2) 
+         {
+            Timer3.detachInterrupt();
+            seconds = 0; 
+            Timer3.attachInterrupt(SetWashTime); 
+            state_main=wash_start;
+            wash_timer = 0;
+            wash_mix_timer = 0;
+            wash_settle_timer = 0; 
+         }
+         else if(wash_count >= 2) 
+         {
+            Timer3.detachInterrupt();
+            seconds = 0; 
+            Timer3.attachInterrupt(SetLineFlushTimer); 
+            state_main=line_flush;
+         }
+         else 
+            state_main=end_wash_cycle;
       
-    wash_speed=wash_speed+20;
-    wash_count=wash_count+1;
-    break;
-  case line_flush:
-    q=9;
-    wash_display=off;
-    digitalWrite(line_flush_led_pin,HIGH);
-    digitalWrite(v_f_pin[0],HIGH);
-    digitalWrite(v_f_pin[3],HIGH);
-    digitalWrite(v_f_pin[4],HIGH);
-    digitalWrite(v_a_pin[0],HIGH);
-    if (digitalRead(em_stop_pin)==1) 
-      state_main=hold;
-    else if (line_flush_timer==1) 
-    {
-      Timer3.detachInterrupt();
-      seconds = 0; 
-      Timer3.attachInterrupt(SetBiodieselXferTimer); 
-      state_main=f_biodiesel_xfer;
-    }
-    else 
-      state_main=line_flush;
-    break;
-  case f_biodiesel_xfer:
-    q=10;
-    digitalWrite(line_flush_led_pin,LOW);
-    digitalWrite(bd_xfer_led_pin,HIGH);
-    digitalWrite(v_f_pin[4],LOW);
-    digitalWrite(v_f_pin[5],HIGH);
-    digitalWrite(v_f_pin[0],HIGH);
-    digitalWrite(v_f_pin[3],HIGH);
-    digitalWrite(v_a_pin[0],HIGH);
-    if (digitalRead(em_stop_pin)==1) 
-       state_main=hold;
-    else if (f_biodiesel_timer==1) 
-       state_main=end_p;
-    else 
-      state_main=f_biodiesel_xfer;
-    break;
-  case end_p:
-    q=11;
-    digitalWrite(bd_xfer_led_pin,LOW);
-    //digitalWrite(end_led_pin,HIGH); this wasn't declared in the code
-    digitalWrite(v_f_pin[5],LOW);
-    digitalWrite(v_f_pin[0],LOW);
-    digitalWrite(v_f_pin[3],LOW);
-    digitalWrite(v_a_pin[0],LOW);
-    if (digitalRead(em_stop_pin)==1) 
-      state_main=hold;
-    else 
-      state_main=end_p;
-    break;
-  case hold:
-    digitalWrite(em_stop_led_pin,HIGH);
-    digitalWrite(v_f_pin[0],LOW);
-    digitalWrite(v_f_pin[1],LOW);
-    digitalWrite(v_f_pin[2],LOW);
-    digitalWrite(v_f_pin[3],LOW);
-    digitalWrite(v_f_pin[4],LOW);
-    digitalWrite(v_f_pin[5],LOW);
-    digitalWrite(v_a_pin[0],LOW);
-    digitalWrite(v_a_pin[1],LOW);
-    digitalWrite(v_a_pin[2],LOW);
-    digitalWrite(light_sensor_oe_pin,HIGH);
-    digitalWrite(rxn_led_pin,LOW);
-    digitalWrite(bd_xfer_led_pin,LOW);
-    digitalWrite(line_flush_led_pin,LOW);
-    resume=digitalRead(resume_pin);
-    if (q==0 && resume==HIGH) 
-      state_main=start;
-    if (q==1 && resume==HIGH) 
-      state_main=rxn_settle;
-    if (q==2 && resume==HIGH) 
-      state_main=g_out_v_open;
-    if (q==3 && resume==HIGH) 
-      state_main=g_out_v_close;
-    if (q==4 && resume==HIGH) 
-      state_main=wash_start;
-    if (q==5 && resume==HIGH) 
-      state_main=wash_mix;
-    if (q==6 && resume==HIGH) 
-      state_main=wash_settle;
-    if (q==7 && resume==HIGH) 
-      state_main=water_flush;
-    if (q==8 && resume==HIGH) 
-      state_main=end_wash_cycle;
-    if (q==9 && resume==HIGH) 
-      state_main=line_flush;
-    if (q==10 && resume==HIGH) 
-      state_main=f_biodiesel_xfer;
-    if (q==11 && resume==HIGH) 
-      state_main=end_p;
-    else 
-      state_main=hold;
-    break;
-  }
+         wash_speed=wash_speed+20;
+         wash_count=wash_count+1;
+         break;
+      case line_flush:
+         q=9;
+         wash_display=off;
+         digitalWrite(line_flush_led_pin,HIGH);
+         digitalWrite(v_f_pin[0],HIGH); //Valve 4
+         digitalWrite(v_f_pin[3],HIGH); //Valve 6
+         digitalWrite(v_f_pin[4],HIGH); //Valve 7
+         digitalWrite(v_a_pin[0],HIGH); //Valve 11
+         if (digitalRead(em_stop_pin)==1) 
+            state_main=hold;
+         else if (line_flush_timer==1) 
+         {
+            Timer3.detachInterrupt();
+            seconds = 0; 
+            Timer3.attachInterrupt(SetBiodieselXferTimer); 
+            state_main=f_biodiesel_xfer;
+         }
+         else 
+            state_main=line_flush;
+         break;
+      case f_biodiesel_xfer:
+         q=10;
+         digitalWrite(line_flush_led_pin,LOW);
+         digitalWrite(bd_xfer_led_pin,HIGH);
+         digitalWrite(v_f_pin[4],LOW); //Valve 7
+         digitalWrite(v_f_pin[5],HIGH); //Valve 8
+         digitalWrite(v_f_pin[0],HIGH); //Valve 4
+         digitalWrite(v_f_pin[3],HIGH); //Valve 6
+         digitalWrite(v_a_pin[0],HIGH); //Valve 11
+         if (digitalRead(em_stop_pin)==1) 
+            state_main=hold;
+         else if (f_biodiesel_timer==1) 
+            state_main=end_p;
+         else 
+            state_main=f_biodiesel_xfer;
+         break;
+      case end_p:
+         q=11;
+         digitalWrite(bd_xfer_led_pin,LOW);
+         digitalWrite(v_f_pin[5],LOW);
+         digitalWrite(v_f_pin[0],LOW);
+         digitalWrite(v_f_pin[3],LOW);
+         digitalWrite(v_a_pin[0],LOW);
+         if (digitalRead(em_stop_pin)==1) 
+            state_main=hold;
+         else 
+            state_main=end_p;
+         break;
+      case hold:
+         digitalWrite(em_stop_led_pin,HIGH);
+         digitalWrite(v_f_pin[0],LOW);
+         digitalWrite(v_f_pin[1],LOW);
+         digitalWrite(v_f_pin[2],LOW);
+         digitalWrite(v_f_pin[3],LOW);
+         digitalWrite(v_f_pin[4],LOW);
+         digitalWrite(v_f_pin[5],LOW);
+         digitalWrite(v_a_pin[0],LOW);
+         digitalWrite(v_a_pin[1],LOW);
+         digitalWrite(v_a_pin[2],LOW);
+         digitalWrite(light_sensor_oe_pin,HIGH);
+         digitalWrite(rxn_led_pin,LOW);
+         digitalWrite(bd_xfer_led_pin,LOW);
+         digitalWrite(line_flush_led_pin,LOW);
+         resume=digitalRead(resume_pin);
+         if (q==0 && resume==HIGH) 
+            state_main=start;
+         if (q==1 && resume==HIGH) 
+            state_main=rxn_settle;
+         if (q==2 && resume==HIGH) 
+            state_main=g_out_v_open;
+         if (q==3 && resume==HIGH) 
+            state_main=g_out_v_close;
+         if (q==4 && resume==HIGH) 
+            state_main=wash_start;
+         if (q==5 && resume==HIGH) 
+            state_main=wash_mix;
+         if (q==6 && resume==HIGH) 
+            state_main=wash_settle;
+         if (q==7 && resume==HIGH) 
+            state_main=water_flush;
+         if (q==8 && resume==HIGH) 
+            state_main=end_wash_cycle;
+         if (q==9 && resume==HIGH) 
+            state_main=line_flush;
+         if (q==10 && resume==HIGH) 
+            state_main=f_biodiesel_xfer;
+         if (q==11 && resume==HIGH) 
+            state_main=end_p;
+         else 
+            state_main=hold;
+         break;
+   }
 
-  switch(state_water){
-    case heater_on:
-      wh_q=0;
-      digitalWrite(heater_pin,HIGH);
-      sensors.requestTemperatures();
-      tempF = sensors.getTempF(outakeTherm);
-      /*if (digitalRead(em_stop_pin)==1) 
-         state_water=stop_wh;*/
-       if (tempF >= tc_max) 
-        state_water=heater_off;
-      else 
-        state_water=heater_on;
-      break;
-    case heater_off:
-      wh_q=1; 
-      digitalWrite(heater_pin,LOW);
-      sensors.requestTemperatures();
-      tempF = sensors.getTempF(outakeTherm);
+   switch(state_water)
+   {
+      case heater_on:
+         wh_q=0;
+         temp_met = 0;
+         digitalWrite(heater_pin,HIGH);
+         sensors.requestTemperatures();
+         tempF = sensors.getTempF(outakeTherm);
+         if (tempF >= tc_max) 
+            state_water=heater_off;
+         else 
+            state_water=heater_on;
+         break;
+      case heater_off:
+         temp_met = 1; 
+         wh_q=1; 
+         digitalWrite(heater_pin,LOW);
+         sensors.requestTemperatures();
+         tempF = sensors.getTempF(outakeTherm);
       
-      /*if (digitalRead(em_stop_pin)==1) 
-         state_water=stop_wh;*/
-      if (tempF <= tc_min) 
-         state_water=heater_on; 
-      else 
-        state_water=heater_off;
-      break;
-    case stop_wh:
-      digitalWrite(heater_pin,LOW);
-      if (wh_q==0 && resume==1) 
-        state_water=heater_on;
-      if (wh_q==1 && resume==1) 
-        state_water=heater_off;
-      else 
-        state_water=stop_wh;
-      break;
-  }
-  
-   //handle serial requests
-   delay(100);
+         if (tempF <= tc_min) 
+            state_water=heater_on; 
+         else 
+            state_water=heater_off;
+         break;
+      case stop_wh:
+         digitalWrite(heater_pin,LOW);
+         if (wh_q==0 && resume==1) 
+            state_water=heater_on;
+         if (wh_q==1 && resume==1) 
+            state_water=heater_off;
+         else 
+            state_water=stop_wh;
+         break;
+   }
    
+   delay(100); //This delay slows down the loop a bit. Not good to loop really fast. 
+   
+   //Handle GUI to Arduino communication
    while (Serial.available())
    { 
       char inByte = Serial.read();
@@ -610,7 +617,7 @@ void loop(){
             Serial.println(analogRead(0));
             break;
              
-    } 
-  }      
+       } 
+    }      
 }
 
