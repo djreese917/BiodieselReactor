@@ -1,4 +1,4 @@
-//#include <TimerThree.h>
+#include <TimerThree.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
 
@@ -23,17 +23,12 @@
 #define light_sensor_oe_pin 38  //deprecated (light sensor not used)
 //43, 44, 45. 46, 47, 48, 49, 50 These were all used as part of the wash ssg, which doesnt exist anymore
 
-// outputs
-#define motor_pin 42
-#define heater_pin 12
-#define pump_pin 51
-
 //State machine states
 #define acid_heating 13
 #define acid_mixing_methanol 14
 #define acid_mixing_h2so4 15
 #define methoxide_heating 16
-#define start 0
+#define add_methoxide 0
 #define rxn_settle 1
 #define g_out_v_open 2
 #define g_out_v_close 3
@@ -65,14 +60,17 @@
 #define biodiesel_xfer_time 90 //drain the biodiesel for 90 seconds
 
 //Temperature thresholds
-#define acid_temp_max 96
-#define acid_temp_min 94
+#define acid_temp_max 81//96
+#define acid_temp_min 79//94
 #define base_temp_max 131
 #define base_temp_min 129
 
 //MISC defines
 #define MAX_Q 12
 #define ONE_WIRE_BUS 40 //pin that temp sensor is plugged into
+#define motor_pin 42
+#define heater_pin 12
+#define pump_pin 51
 
 //MISC Variables
 int v_f_pin [6]={28, 29, 30, 31, 32, 33}; //fluid valve pins
@@ -93,7 +91,7 @@ int stir_two_timer=0;
 
 //state related variables
 int q=0;//State indicator variable
-int state_main=start;
+int state_main=acid_heating;
 int state_water=heater_on;
 int wh_q; //water heater state indicator variable;
 int wash_count=0; //wash counter to check for wash loop completion
@@ -113,7 +111,7 @@ int resume = 0;
 int emergencyStop = 0; 
 
 //Temperature sensor setup
-OneWire oneWire(40);
+OneWire oneWire(40); //CHANGE THIS BACK TO 3
 DeviceAddress outakeTherm = {0x28, 0xDF, 0x70, 0xFB, 0x05, 0x00, 0x00, 0x43};
 DallasTemperature sensors(&oneWire); 
 
@@ -222,17 +220,20 @@ void setup() {
    digitalWrite(v_a_pin[1],LOW); //Valve 12? (can't tell if 12 or 13)
    digitalWrite(v_a_pin[2],LOW); //Valve 13? (can't tell if 12 or 13)
    digitalWrite(heater_pin,LOW);
-   //Timer3.initialize(1000000); //timer with 1 second period
+   Timer3.initialize(1000000); //timer with 1 second period
    Serial.begin(9600);
+   while (!Serial)
+      ;
    sensors.begin();
-   sensors.setResolution(outakeTherm, 10); 
+   sensors.setResolution(outakeTherm, 10);
+   Serial.println("Setup done!"); 
 }
 
 void loop(){
- 
    switch(state_main)
    {
       case acid_heating: //Heat the WVO up to 95 F
+         q = 12;
          tc_max = acid_temp_max;
          tc_min = acid_temp_min; 
          digitalWrite(pump_pin, HIGH); 
@@ -242,15 +243,17 @@ void loop(){
             state_main=hold;
          else if (temp_met || goToNextState)
          {
+            Timer3.detachInterrupt();
             goToNextState = 0; 
-            //Timer3.attachInterrupt(SetStirAcidTime); 
             seconds = 0;
+            Timer3.attachInterrupt(SetStirAcidTime); 
             state_main = acid_mixing_methanol; 
          }
          else
             state_main = acid_heating; 
          break;
-      case acid_mixing_methanol: //add methanol at this point, then hit next
+      case acid_mixing_methanol: //add methanol at this point
+         q = 13;
          digitalWrite(motor_pin,HIGH); 
          digitalWrite(pump_pin, HIGH); 
          
@@ -259,15 +262,16 @@ void loop(){
          else if (stir_acid_timer || goToNextState)
          {
             goToNextState = 0;
-            //Timer3.detachInterrupt();
+            Timer3.detachInterrupt();
             seconds = 0;
-            //Timer3.attachInterrupt(SetStirTwo); 
+            Timer3.attachInterrupt(SetStirTwo); 
             state_main = acid_mixing_h2so4; 
          }
          else 
             state_main = acid_mixing_methanol;
          break;
-      case acid_mixing_h2so4:
+      case acid_mixing_h2so4: //add sulfuric acid
+         q = 14;
          digitalWrite(motor_pin,HIGH); //Note that these are only repeated for clarity
          digitalWrite(pump_pin,HIGH);  //The pin settings carry over from previous states
          if (emergencyStop)
@@ -276,12 +280,15 @@ void loop(){
          {
             goToNextState = 0;
             state_main = methoxide_heating;
+            tc_max = base_temp_max;
+            tc_min = base_temp_min; //update temps for the next step
          }
          else 
             state_main = acid_mixing_h2so4;
         
          break; 
-      case methoxide_heating:
+      case methoxide_heating: //heat mixture up to proper temp before adding methoxide
+         q = 15;         
          tc_max = base_temp_max;
          tc_min = base_temp_min; 
          digitalWrite(motor_pin,HIGH);
@@ -291,15 +298,15 @@ void loop(){
          else if (temp_met || goToNextState)
          {
             goToNextState = 0;
-            //Timer3.detachInterrupt();
+            Timer3.detachInterrupt();
             seconds = 0; 
-            //Timer3.attachInterrupt(SetRxnTime); 
-            state_main = start;
+            Timer3.attachInterrupt(SetRxnTime); 
+            state_main = add_methoxide;
          }
          else
             state_main = methoxide_heating; 
          break;
-      case start: //add methoxide add this point.
+      case add_methoxide: //add methoxide add this point.
          q=0;
          digitalWrite(motor_pin,HIGH);
          digitalWrite(pump_pin, HIGH); 
@@ -308,13 +315,13 @@ void loop(){
          else if (rxn_timer || goToNextState) 
          {
             goToNextState = 0;
-            //Timer3.detachInterrupt(); 
+            Timer3.detachInterrupt(); 
             seconds = 0; //reset seconds for the next timer
-            //Timer3.attachInterrupt(SetRxnSettleTime); //set the appropriate handler
+            Timer3.attachInterrupt(SetRxnSettleTime); //set the appropriate handler
             state_main=rxn_settle;
          } 
          else 
-            state_main=start;
+            state_main=add_methoxide;
          break;
       case rxn_settle:
          q=1;
@@ -326,7 +333,7 @@ void loop(){
          else if (rxn_settle_timer || goToNextState) 
          {
             goToNextState = 0; 
-            //Timer3.detachInterrupt();
+            Timer3.detachInterrupt();
             seconds = 0;
             state_main=g_out_v_open;  
          } 
@@ -345,8 +352,8 @@ void loop(){
          {
             goToNextState = 0;
             seconds = 0; 
-            //Timer3.detachInterrupt();
-            //Timer3.attachInterrupt(SetVentTimer); 
+            Timer3.detachInterrupt();
+            Timer3.attachInterrupt(SetVentTimer); 
             state_main=g_out_v_close;
          } 
          else 
@@ -363,9 +370,9 @@ void loop(){
          else if (g_out_timer || goToNextState) 
          {
             goToNextState = 0; 
-            //Timer3.detachInterrupt();
+            Timer3.detachInterrupt();
             seconds = 0;
-            //Timer3.attachInterrupt(SetWashTime); 
+            Timer3.attachInterrupt(SetWashTime); 
             state_main=wash_start;
          }
          else 
@@ -382,9 +389,9 @@ void loop(){
          else if (wash_timer || goToNextState) 
          {
             goToNextState = 0; 
-            //Timer3.detachInterrupt();
+            Timer3.detachInterrupt();
             seconds = 0;
-            //Timer3.attachInterrupt(SetMixTimer); 
+            Timer3.attachInterrupt(SetMixTimer); 
             state_main=wash_mix;
          }
          else 
@@ -402,9 +409,9 @@ void loop(){
          else if (wash_mix_timer || goToNextState) 
          {
             goToNextState = 0;
-            //Timer3.detachInterrupt();
+            Timer3.detachInterrupt();
             seconds = 0;
-            //Timer3.attachInterrupt(SetWashSettleTimer); 
+            Timer3.attachInterrupt(SetWashSettleTimer); 
             state_main=wash_settle;
          }
          else 
@@ -451,9 +458,9 @@ void loop(){
             state_main=hold;
          else if(wash_count < 2) 
          {
-            //Timer3.detachInterrupt();
+            Timer3.detachInterrupt();
             seconds = 0; 
-            //Timer3.attachInterrupt(SetWashTime); 
+            Timer3.attachInterrupt(SetWashTime); 
             state_main=wash_start;
             wash_timer = 0;
             wash_mix_timer = 0;
@@ -461,9 +468,9 @@ void loop(){
          }
          else if(wash_count >= 2) 
          {
-            //Timer3.detachInterrupt();
+            Timer3.detachInterrupt();
             seconds = 0; 
-            //Timer3.attachInterrupt(SetLineFlushTimer); 
+            Timer3.attachInterrupt(SetLineFlushTimer); 
             state_main=line_flush;
          }
          else 
@@ -482,9 +489,9 @@ void loop(){
          else if (line_flush_timer || goToNextState) 
          {
             goToNextState = 0; 
-            //Timer3.detachInterrupt();
+            Timer3.detachInterrupt();
             seconds = 0; 
-            //Timer3.attachInterrupt(SetBiodieselXferTimer); 
+            Timer3.attachInterrupt(SetBiodieselXferTimer); 
             state_main=f_biodiesel_xfer;
          }
          else 
@@ -527,31 +534,41 @@ void loop(){
          digitalWrite(v_a_pin[0],LOW);
          digitalWrite(v_a_pin[1],LOW);
          digitalWrite(v_a_pin[2],LOW);
+         digitalWrite(motor_pin, LOW); 
+         state_water=stop_wh;
          
          if (q==0 && resume) 
-            state_main=start;
-         if (q==1 && resume) 
+            state_main=add_methoxide;
+         else if (q==1 && resume) 
             state_main=rxn_settle;
-         if (q==2 && resume) 
+         else if (q==2 && resume) 
             state_main=g_out_v_open;
-         if (q==3 && resume) 
+         else if (q==3 && resume) 
             state_main=g_out_v_close;
-         if (q==4 && resume) 
+         else if (q==4 && resume) 
             state_main=wash_start;
-         if (q==5 && resume) 
+         else if (q==5 && resume) 
             state_main=wash_mix;
-         if (q==6 && resume) 
+         else if (q==6 && resume) 
             state_main=wash_settle;
-         if (q==7 && resume) 
+         else if (q==7 && resume) 
             state_main=water_flush;
-         if (q==8 && resume) 
+         else if (q==8 && resume) 
             state_main=end_wash_cycle;
-         if (q==9 && resume) 
+         else if (q==9 && resume) 
             state_main=line_flush;
-         if (q==10 && resume) 
+         else if (q==10 && resume) 
             state_main=f_biodiesel_xfer;
-         if (q==11 && resume) 
+         else if (q==11 && resume) 
             state_main=end_p;
+         else if (q==12 && resume)
+            state_main=acid_heating;
+         else if (q==13 && resume)
+            state_main=acid_mixing_methanol;
+         else if (q==14 && resume)
+            state_main=acid_mixing_h2so4;
+         else if (q==15 && resume)
+            state_main=methoxide_heating;
          else 
             state_main=hold;
          break;
@@ -563,6 +580,7 @@ void loop(){
          wh_q=0;
          temp_met = 0;
          digitalWrite(heater_pin,HIGH);
+         digitalWrite(pump_pin, HIGH);
          sensors.requestTemperatures();
          tempF = sensors.getTempF(outakeTherm);
          if (tempF >= tc_max) 
@@ -574,6 +592,7 @@ void loop(){
          temp_met = 1; 
          wh_q=1; 
          digitalWrite(heater_pin,LOW);
+         digitalWrite(pump_pin, HIGH); 
          sensors.requestTemperatures();
          tempF = sensors.getTempF(outakeTherm);
       
@@ -584,9 +603,10 @@ void loop(){
          break;
       case stop_wh:
          digitalWrite(heater_pin,LOW);
+         digitalWrite(pump_pin, LOW);
          if (wh_q==0 && resume==1) 
             state_water=heater_on;
-         if (wh_q==1 && resume==1) 
+         else if (wh_q==1 && resume==1) 
             state_water=heater_off;
          else 
             state_water=stop_wh;
@@ -595,7 +615,7 @@ void loop(){
    
    delay(100); //This delay slows down the loop a bit. Not good to loop really fast. 
    
-   //Handle GUI to Arduino communication
+   //Handle GUI/Arduino communication
    while (Serial.available())
    { 
       char inByte = Serial.read();
